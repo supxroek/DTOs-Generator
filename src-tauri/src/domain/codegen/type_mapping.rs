@@ -1,12 +1,11 @@
-// src-tauri/src/domain/codegen/type_mapping.rs
-use crate::domain::schema::column::SqlTypeKind;
 use serde::{Deserialize, Serialize};
+use crate::domain::schema::column::SqlTypeKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CSharpTarget {
     NetFramework4x,
-    NetModern,
+    NetModern, // .NET 8+
 }
 
 pub trait TypeMappingStrategy {
@@ -16,37 +15,41 @@ pub trait TypeMappingStrategy {
 
 pub struct WinFormsDefaultMapper;
 
+impl WinFormsDefaultMapper {
+    fn base_csharp_type(sql_type: &SqlTypeKind) -> (&'static str, bool) {
+        // คืนค่า (ชื่อ C# type พื้นฐาน, เป็น Value Type หรือไม่)
+        match sql_type {
+            SqlTypeKind::VarChar | SqlTypeKind::NVarChar => ("string", false),
+            SqlTypeKind::Int => ("int", true),
+            SqlTypeKind::BigInt => ("long", true),
+            SqlTypeKind::SmallInt => ("short", true),
+            SqlTypeKind::TinyInt => ("byte", true),
+            SqlTypeKind::Decimal => ("decimal", true),
+            SqlTypeKind::Float => ("double", true),
+            SqlTypeKind::Real => ("float", true),
+            SqlTypeKind::Bit => ("bool", true),
+            SqlTypeKind::DateTime | SqlTypeKind::Date => ("DateTime", true),
+            SqlTypeKind::UniqueIdentifier => ("Guid", true),
+            SqlTypeKind::VarBinary => ("byte[]", false),
+            SqlTypeKind::Other(_) => ("object", false),
+        }
+    }
+}
+
 impl TypeMappingStrategy for WinFormsDefaultMapper {
     fn map_csharp_type(&self, sql_type: &SqlTypeKind, is_nullable: bool, target: CSharpTarget) -> String {
-        let base = match sql_type {
-            SqlTypeKind::VarChar | SqlTypeKind::NVarChar => "string",
-            SqlTypeKind::Int => "int",
-            SqlTypeKind::BigInt => "long",
-            SqlTypeKind::SmallInt => "short",
-            SqlTypeKind::TinyInt => "byte",
-            SqlTypeKind::Decimal => "decimal",
-            SqlTypeKind::Float => "double",
-            SqlTypeKind::Real => "float",
-            SqlTypeKind::Bit => "bool",
-            SqlTypeKind::DateTime | SqlTypeKind::Date => "DateTime",
-            SqlTypeKind::UniqueIdentifier => "Guid",
-            SqlTypeKind::VarBinary => "byte[]",
-            SqlTypeKind::Other(_) => "object",
-        };
+        let (base, is_value_type) = Self::base_csharp_type(sql_type);
 
-        let is_reference_type = matches!(
-            sql_type,
-            SqlTypeKind::VarChar | SqlTypeKind::NVarChar | SqlTypeKind::VarBinary | SqlTypeKind::Other(_)
-        );
-
-        match (is_nullable, is_reference_type, target) {
-            (true, false, _) => format!("{base}?"),
-            (true, true, CSharpTarget::NetModern) => format!("{base}?"),
+        match (is_nullable, is_value_type, target) {
+            (true, true, _) => format!("{base}?"),
+            (true, false, CSharpTarget::NetModern) => format!("{base}?"),
             _ => base.to_string(),
         }
     }
 
     fn map_datarow_expr(&self, col_expr: &str, sql_type: &SqlTypeKind, is_nullable: bool) -> String {
+        let (base, is_value_type) = Self::base_csharp_type(sql_type);
+
         let non_null_expr = match sql_type {
             SqlTypeKind::VarChar | SqlTypeKind::NVarChar => format!("{col_expr}.ToString()"),
             SqlTypeKind::Int => format!("Convert.ToInt32({col_expr})"),
@@ -63,10 +66,17 @@ impl TypeMappingStrategy for WinFormsDefaultMapper {
             SqlTypeKind::Other(_) => col_expr.to_string(),
         };
 
-        if is_nullable {
-            format!("{col_expr} == DBNull.Value ? null : {non_null_expr}")
-        } else {
-            non_null_expr
+        if !is_nullable {
+            return non_null_expr;
         }
+
+        // รองรับ C# 7.3 (.NET Framework): Value Type ต้อง cast เป็น (T?)null
+        let null_literal = if is_value_type {
+            format!("({base}?)null")
+        } else {
+            "null".to_string()
+        };
+
+        format!("{col_expr} == DBNull.Value ? {null_literal} : {non_null_expr}")
     }
 }
