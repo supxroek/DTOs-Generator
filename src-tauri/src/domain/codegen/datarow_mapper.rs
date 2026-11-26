@@ -31,6 +31,6 @@ pub fn generate_datarow_loop<M: TypeMappingStrategy>(
     let body = prop_inits.join(",\n");
 
     format!(
-        "var list = new List<{class_ident}>();\n\nif ({table_var} == null || {table_var}.Rows.Count == 0)\n    \nreturn list;\n\n\n// Mapping\n\nforeach (DataRow {row_var} in {table_var}.Rows)\n\n{{\n    \nlist.Add(new {class_ident}\n    \n{{\n\n{body}\n    \n}});\n\n}}\n\n\nreturn list;\n"
+        "var list = new List<{class_ident}>();\n\nif ({table_var} == null || {table_var}.Rows.Count == 0)\nreturn list;\n\n// Mapping\nforeach (DataRow {row_var} in {table_var}.Rows)\n{{\n\tlist.Add(new {class_ident}\n\t{{\n{body}\n\t}});\n}}\n\nreturn list;\n"
     )
 }

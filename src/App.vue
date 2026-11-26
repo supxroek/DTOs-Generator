@@ -7,7 +7,7 @@ import { tauriApi } from './shared/api/tauriApi';
 import type { ColumnSpec, ConnectionConfig, TableInfo } from './shared/types/dtoGen';
 
 const config = ref<ConnectionConfig>({
-  host: 'localhost',
+  host: 'spc805srv',
   port: 1433,
   database: '',
   username: 'sa',
